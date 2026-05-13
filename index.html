@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Finanças · Talyta Kumy · 2026</title>
+<!-- v7 -->
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1435,30 +1436,23 @@ async function irisSendMsg() {
       resultado = { reply: textoLimpo || 'Não entendi. Tente novamente.', action: null };
     }
 
+    // Normaliza action.type: remove escapes residuais (ex: DELETE\_TRANSACTION -> DELETE_TRANSACTION)
+    if (resultado && resultado.action && resultado.action.type) {
+      resultado.action.type = resultado.action.type.replace(/\\/g, '').replace(/\s/g, '_').toUpperCase();
+    }
+
     document.getElementById('typ').classList.remove('on');
 
     const reply  = resultado.reply  || '';
     const action = resultado.action || null;
     const auto   = resultado.autoExec === true;
 
-    // ADD_TRANSACTION e DELETE_TRANSACTION executam direto
-    if (action && (action.type === 'ADD_TRANSACTION' || action.type === 'DELETE_TRANSACTION' || action.type === 'ADD_CATEGORY')) {
+    // Todas as ações executam direto — sem card de confirmação
+    if (action) {
       const ok = execAcao(action);
-      irisAddMsg('ai', (reply || 'Feito!') + (ok ? '\n\n' + ok : ''));
-      irisHistory.push({ role: 'assistant', content: reply || ok });
-
-    } else if (action && (auto || action.type === 'NAVIGATE')) {
-      // Executa imediatamente
-      const ok = execAcao(action);
-      irisAddMsg('ai', reply || ok);
-      irisHistory.push({ role: 'assistant', content: reply || ok });
-
-    } else if (action) {
-      // Propõe com confirmação (DELETE, UPDATE_GOAL, etc)
-      pendingAction = action;
-      const desc = descreverAcao(action);
-      irisAddMsg('ai', reply || 'Confirma essa ação?', irisActCard(desc));
-      irisHistory.push({ role: 'assistant', content: reply + ' | Proposta: ' + desc });
+      const msgFinal = (reply || '') + (ok && ok !== reply ? (reply ? '\n\n' + ok : ok) : '');
+      irisAddMsg('ai', msgFinal || 'Feito!');
+      irisHistory.push({ role: 'assistant', content: msgFinal || 'ok' });
 
     } else {
       irisAddMsg('ai', reply || 'Não entendi, pode reformular?');
