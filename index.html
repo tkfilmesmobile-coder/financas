@@ -1234,6 +1234,7 @@ async function irisSendMsg() {
 
     // ── System prompt compacto com contexto real ──
     const system = [
+      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. NUNCA use markdown. NUNCA escape underscores. NUNCA coloque backticks. Apenas o objeto JSON diretamente.',
       'Voce e Iris, assistente financeira da Talyta. Responda SEMPRE em portugues.',
       'Ano: ' + S.year + ' | Mes atual: ' + MN[CM] + ' (indice ' + CM + ')',
       'Receitas ' + S.year + ': ' + fmt(yr.rec) + ' | Despesas: ' + fmt(yr.dep) + ' | Saldo: ' + fmtS(yr.saldo),
@@ -1311,22 +1312,25 @@ async function irisSendMsg() {
     // Extrai texto da resposta OpenRouter (formato OpenAI)
     const rawText = (data.choices?.[0]?.message?.content || '').trim();
 
-    // Parse JSON da resposta
+    // Parse JSON da resposta — limpa qualquer escape inválido de modelos livres
     let resultado = null;
     try {
-      // Remove markdown fences e escapes inválidos que modelos livres inserem
+      // Limpeza agressiva: remove fences, escapes de markdown, espaços extras
       let clean = rawText
-        .replace(/^```(?:json)?\n?/,'').replace(/\n?```$/,'')  // remove fences
-        .replace(/\\_/g,'_')      // \_ -> _
-        .replace(/\\-/g,'-')      // \- -> -
-        .replace(/\\\*/g,'*')    // \* -> *
-        .replace(/\\\(/g,'(').replace(/\\\)/g,')')  // \( \)
-        .replace(/\\\[/g,'[').replace(/\\\]/g,']')  // \[ \]
+        .replace(/^\s*```+(?:json)?\s*/i, '')  // ``` ou ```json no início
+        .replace(/\s*```+\s*$/, '')              // ``` no final
+        .replace(/\\([_\-\*\(\)\[\]\{\}\.])/g, '$1') // remove backslash antes de qualquer char especial
         .trim();
+      // Tenta extrair JSON mesmo que tenha texto antes/depois
+      const jsonMatch = clean.match(/\{[\s\S]*\}/);
+      if (jsonMatch) clean = jsonMatch[0];
       resultado = JSON.parse(clean);
     } catch(e) {
-      // Se não veio JSON válido, trata como resposta de texto simples
-      resultado = { reply: rawText.replace(/\\_/g,'_').replace(/\\-/g,'-'), action: null };
+      // Fallback: mostra o texto limpo
+      const textoLimpo = rawText
+        .replace(/^\s*```+(?:json)?\s*/i,'').replace(/\s*```+\s*$/,'')
+        .replace(/\\([_\-\*\(\)\[\]])/g,'$1').trim();
+      resultado = { reply: textoLimpo || 'Não entendi. Tente novamente.', action: null };
     }
 
     document.getElementById('typ').classList.remove('on');
