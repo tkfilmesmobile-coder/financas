@@ -1505,6 +1505,19 @@ function toggleIris() {
   }
 }
 
+function limparHistorico() {
+  localStorage.removeItem('iris_v3');
+  irisHistory = [];
+  irisCount = 0;
+  // Limpa mensagens visuais
+  const msgs = document.getElementById('msgs');
+  const typ = document.getElementById('typ');
+  while (msgs.firstChild && msgs.firstChild !== typ) {
+    msgs.removeChild(msgs.firstChild);
+  }
+  irisAddMsg('ai', 'Histórico apagado! Pode começar do zero.');
+}
+
 // Init
 irisLoad();
 render();
