@@ -1261,7 +1261,10 @@ async function irisSendMsg() {
 
     // ── System prompt compacto com contexto real ──
     const system = [
-      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. NUNCA use markdown. NUNCA escape underscores. NUNCA coloque backticks. Apenas o objeto JSON diretamente. Para multiplos lancamentos use params como array. Seja COMPACTO: sem espacos extras, sem quebras de linha dentro do JSON.',
+      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. SEM markdown. SEM backticks. SEM escapes de underscore. JSON compacto sem espacos extras.',
+      'FORMATO OBRIGATORIO: {"reply":"<msg curta>","action":{"type":"<TIPO>","params":<params>},"autoExec":true}',
+      'IMPORTANTE: autoExec deve ser SEMPRE true para ADD_TRANSACTION e ADD_CATEGORY. Apenas false para DELETE.',
+      'Para multiplos lancamentos: params deve ser um array JSON de objetos.',
       'Voce e Iris, assistente financeira da Talyta. Responda SEMPRE em portugues.',
       'Ano: ' + S.year + ' | Mes atual: ' + MN[CM] + ' (indice ' + CM + ')',
       'Receitas ' + S.year + ': ' + fmt(yr.rec) + ' | Despesas: ' + fmt(yr.dep) + ' | Saldo: ' + fmtS(yr.saldo),
@@ -1300,7 +1303,7 @@ async function irisSendMsg() {
     // ── OpenRouter API (compatível com formato OpenAI, CORS liberado) ──
     const orBody = JSON.stringify({
       model: 'openrouter/auto',
-      max_tokens: 1500,
+      max_tokens: 2500,
       messages: [
         { role: 'system', content: system },
         ...msgs
@@ -1408,17 +1411,23 @@ async function irisSendMsg() {
     const action = resultado.action || null;
     const auto   = resultado.autoExec === true;
 
-    if (action && auto) {
-      // Executa imediatamente (ex: navegar)
+    // ADD_TRANSACTION sempre autoExec para não depender do modelo setar corretamente
+    if (action && action.type === 'ADD_TRANSACTION') {
+      const ok = execAcao(action);
+      irisAddMsg('ai', (reply || 'Feito!') + (ok ? '\n\n' + ok : ''));
+      irisHistory.push({ role: 'assistant', content: reply || ok });
+
+    } else if (action && (auto || action.type === 'ADD_CATEGORY' || action.type === 'NAVIGATE')) {
+      // Executa imediatamente
       const ok = execAcao(action);
       irisAddMsg('ai', reply || ok);
       irisHistory.push({ role: 'assistant', content: reply || ok });
 
     } else if (action) {
-      // Propõe com confirmação
+      // Propõe com confirmação (DELETE, UPDATE_GOAL, etc)
       pendingAction = action;
       const desc = descreverAcao(action);
-      irisAddMsg('ai', reply || 'Posso fazer isso:', irisActCard(desc));
+      irisAddMsg('ai', reply || 'Confirma essa ação?', irisActCard(desc));
       irisHistory.push({ role: 'assistant', content: reply + ' | Proposta: ' + desc });
 
     } else {
