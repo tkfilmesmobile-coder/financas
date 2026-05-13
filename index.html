@@ -922,19 +922,33 @@ function addOneTransaction(p) {
     return p.desc + ' fixo adicionado em todos os meses';
   } else {
     // Variável: lança nos meses especificados
+    // Se mi é array, cada elemento é um mês — parc é ignorado (meses já explícitos)
+    // Se mi é número único e parc>1, distribui em meses sequenciais
     let count = 0;
-    meses.forEach(mi => {
-      if (isLocked(mi)) return;
+    const miOriginalIsArray = Array.isArray(p.mi);
+    if (miOriginalIsArray || (p.parc || 1) === 1) {
+      // Lança exatamente nos meses do array, uma vez cada
+      meses.forEach(mi => {
+        if (isLocked(mi)) return;
+        const arr = getT(mi);
+        arr.push({ id: uid(), fid: null, desc: p.desc, cat: p.cat, tipo: p.tipo,
+          valor: p.valor, parc: 1, parcAtual: 1, nat, car, ok: false });
+        setT(mi, arr);
+        count++;
+      });
+    } else {
+      // Parcelas reais em meses sequenciais a partir do primeiro mi
+      const miStart = meses[0];
       for (let pp = 0; pp < (p.parc || 1); pp++) {
-        const ti = (mi + pp) % 12;
+        const ti = (miStart + pp) % 12;
         if (isLocked(ti)) continue;
         const arr = getT(ti);
         arr.push({ id: uid(), fid: null, desc: p.desc, cat: p.cat, tipo: p.tipo,
-          valor: vp, parc: p.parc || 1, parcAtual: pp + 1, nat, car, ok: false });
+          valor: vp, parc: p.parc, parcAtual: pp + 1, nat, car, ok: false });
         setT(ti, arr);
         count++;
       }
-    });
+    }
     return p.desc + ' adicionado (' + count + ' lançamento' + (count !== 1 ? 's' : '') + ')';
   }
 }
@@ -959,16 +973,28 @@ function execAcao(a) {
       }
 
       case 'DELETE_TRANSACTION': {
-        const arr = getT(a.params.mi);
-        const lo  = (a.params.desc || '').toLowerCase();
-        const i   = arr.findIndex(t => t.desc.toLowerCase().includes(lo) || lo.includes(t.desc.toLowerCase().substring(0,4)));
-        if (i < 0) return 'Não encontrei "' + a.params.desc + '" em ' + MN[a.params.mi] + '.';
-        const rem = arr.splice(i, 1)[0];
-        setT(a.params.mi, arr);
+        const lo = (a.params.desc || '').toLowerCase();
+        if (!lo) return 'Informe qual lançamento remover.';
+        const miList = a.params.mi !== undefined
+          ? (Array.isArray(a.params.mi) ? a.params.mi : [a.params.mi])
+          : MN.map((_,i)=>i);
+        const removidos = [];
+        miList.forEach(mi => {
+          const arr = getT(mi);
+          const idx2 = arr.findIndex(t =>
+            t.desc.toLowerCase().includes(lo) ||
+            lo.includes(t.desc.toLowerCase().substring(0,4))
+          );
+          if (idx2 >= 0) {
+            removidos.push(arr.splice(idx2,1)[0].desc + ' (' + MN[mi] + ')');
+            setT(mi, arr);
+          }
+        });
+        if (!removidos.length) return 'Não encontrei "' + a.params.desc + '" em nenhum mês.';
         render();
-        return '✓ Removido: **' + rem.desc + '** de ' + MN[a.params.mi] + '.';
+        return '✓ Removido: ' + removidos.join(', ') + '.';
       }
-
+      
       case 'EDIT_TRANSACTION': {
         const arr = getT(a.params.mi);
         const lo  = (a.params.busca || '').toLowerCase();
@@ -1265,6 +1291,8 @@ async function irisSendMsg() {
       'FORMATO OBRIGATORIO: {"reply":"<msg curta>","action":{"type":"<TIPO>","params":<params>},"autoExec":true}',
       'IMPORTANTE: autoExec deve ser SEMPRE true para ADD_TRANSACTION e ADD_CATEGORY. Apenas false para DELETE.',
       'Para multiplos lancamentos: params deve ser um array JSON de objetos.',
+      'PARCELAS: se o titulo tem "1/5" ou "(1/3)" isso e apenas um identificador, NAO e quantidade de parcelas. Use parc:1 nesses casos. Parcelas reais so quando o usuario pede explicitamente parcelar em N vezes.',
+      'EXCLUIR: para DELETE_TRANSACTION sempre inclua mi (indice do mes 0-11) se souber, ou omita para buscar em todos os meses.',
       'Voce e Iris, assistente financeira da Talyta. Responda SEMPRE em portugues.',
       'Ano: ' + S.year + ' | Mes atual: ' + MN[CM] + ' (indice ' + CM + ')',
       'Receitas ' + S.year + ': ' + fmt(yr.rec) + ' | Despesas: ' + fmt(yr.dep) + ' | Saldo: ' + fmtS(yr.saldo),
