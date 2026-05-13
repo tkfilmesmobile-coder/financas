@@ -1261,7 +1261,7 @@ async function irisSendMsg() {
 
     // ── System prompt compacto com contexto real ──
     const system = [
-      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. NUNCA use markdown. NUNCA escape underscores. NUNCA coloque backticks. Apenas o objeto JSON diretamente.',
+      'INSTRUCAO CRITICA: Responda SOMENTE com JSON puro e valido. NUNCA use markdown. NUNCA escape underscores. NUNCA coloque backticks. Apenas o objeto JSON diretamente. Para multiplos lancamentos use params como array. Seja COMPACTO: sem espacos extras, sem quebras de linha dentro do JSON.',
       'Voce e Iris, assistente financeira da Talyta. Responda SEMPRE em portugues.',
       'Ano: ' + S.year + ' | Mes atual: ' + MN[CM] + ' (indice ' + CM + ')',
       'Receitas ' + S.year + ': ' + fmt(yr.rec) + ' | Despesas: ' + fmt(yr.dep) + ' | Saldo: ' + fmtS(yr.saldo),
@@ -1300,7 +1300,7 @@ async function irisSendMsg() {
     // ── OpenRouter API (compatível com formato OpenAI, CORS liberado) ──
     const orBody = JSON.stringify({
       model: 'openrouter/auto',
-      max_tokens: 500,
+      max_tokens: 1500,
       messages: [
         { role: 'system', content: system },
         ...msgs
@@ -1339,23 +1339,65 @@ async function irisSendMsg() {
     // Extrai texto da resposta OpenRouter (formato OpenAI)
     const rawText = (data.choices?.[0]?.message?.content || '').trim();
 
-    // Parse JSON da resposta — limpa qualquer escape inválido de modelos livres
+    // Parse JSON da resposta
     let resultado = null;
     try {
-      // Limpeza agressiva: remove fences, escapes de markdown, espaços extras
+      // Limpeza: remove fences e escapes inválidos de modelos livres
       let clean = rawText
-        .replace(/^\s*```+(?:json)?\s*/i, '')  // ``` ou ```json no início
-        .replace(/\s*```+\s*$/, '')              // ``` no final
-        .replace(/\\([_\-\*\(\)\[\]\{\}\.])/g, '$1') // remove backslash antes de qualquer char especial
+        .replace(/^\s*`{3,}(?:json)?\s*/i, '')
+        .replace(/\s*`{3,}\s*$/, '')
+        .replace(/\\([_\-\*\(\)\[\]\{\}\.])/g, '$1')
         .trim();
-      // Tenta extrair JSON mesmo que tenha texto antes/depois
-      const jsonMatch = clean.match(/\{[\s\S]*\}/);
-      if (jsonMatch) clean = jsonMatch[0];
-      resultado = JSON.parse(clean);
+
+      // Extrai o objeto JSON (ignora texto antes/depois)
+      const m = clean.match(/\{[\s\S]*\}/);
+      if (m) clean = m[0];
+
+      // Tenta parse direto
+      try {
+        resultado = JSON.parse(clean);
+      } catch(e1) {
+        // JSON pode estar truncado — tenta reparar fechando estruturas abertas
+        let repaired = clean;
+        // Conta arrays e objetos abertos
+        let depth = 0, inStr = false, escape = false;
+        for (let i = 0; i < repaired.length; i++) {
+          const ch = repaired[i];
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"' && !escape) { inStr = !inStr; continue; }
+          if (!inStr) {
+            if (ch === '{' || ch === '[') depth++;
+            else if (ch === '}' || ch === ']') depth--;
+          }
+        }
+        // Remove trailing vírgula e fecha estruturas
+        repaired = repaired.replace(/,\s*$/, '');
+        // Fecha arrays e objetos abertos na ordem inversa
+        // Estratégia simples: adiciona fechamentos baseado no que falta
+        const opens = [];
+        inStr = false; escape = false;
+        for (let i = 0; i < repaired.length; i++) {
+          const ch = repaired[i];
+          if (escape) { escape = false; continue; }
+          if (ch === '\\') { escape = true; continue; }
+          if (ch === '"' && !escape) { inStr = !inStr; continue; }
+          if (!inStr) {
+            if (ch === '{') opens.push('}');
+            else if (ch === '[') opens.push(']');
+            else if (ch === '}' || ch === ']') opens.pop();
+          }
+        }
+        // Se estava no meio de uma string, fecha ela
+        if (inStr) repaired += '"';
+        // Fecha objetos/arrays abertos
+        repaired += opens.reverse().join('');
+        resultado = JSON.parse(repaired);
+      }
     } catch(e) {
-      // Fallback: mostra o texto limpo
+      // Fallback: mostra o texto limpo como mensagem
       const textoLimpo = rawText
-        .replace(/^\s*```+(?:json)?\s*/i,'').replace(/\s*```+\s*$/,'')
+        .replace(/^\s*`{3,}(?:json)?\s*/i,'').replace(/\s*`{3,}\s*$/,'')
         .replace(/\\([_\-\*\(\)\[\]])/g,'$1').trim();
       resultado = { reply: textoLimpo || 'Não entendi. Tente novamente.', action: null };
     }
