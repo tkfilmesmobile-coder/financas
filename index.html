@@ -812,10 +812,16 @@ function descreverAcao(a) {
   if (!a) return '';
   switch (a.type) {
     case 'ADD_TRANSACTION': {
-      const p = a.params;
-      const tipo = p.tipo === 'RECEITA' ? '📥 Receita' : '📤 Despesa';
-      const nat  = p.nat === 'fixa' ? ' (fixa — todos os meses)' : p.parc > 1 ? ' (' + p.parc + 'x de R$ ' + (p.valor/p.parc).toFixed(2) + ')' : '';
-      return tipo + ': <strong>' + p.desc + '</strong> — <strong>' + fmt(p.valor) + '</strong> em ' + MN[p.mi] + ' | ' + p.cat + nat;
+      const lista = Array.isArray(a.params) ? a.params : [a.params];
+      if (lista.length === 1) {
+        const p = lista[0];
+        const tipo = p.tipo === 'RECEITA' ? '📥 Receita' : '📤 Despesa';
+        const nat  = p.nat === 'fixa' ? ' (fixa — todos os meses)' : p.parc > 1 ? ' (' + p.parc + 'x de ' + fmt(p.valor/p.parc) + ')' : '';
+        const meses = Array.isArray(p.mi) ? p.mi.map(i=>MN[i]).join(', ') : MN[p.mi !== undefined ? p.mi : CM];
+        return tipo + ': <strong>' + p.desc + '</strong> — <strong>' + fmt(p.valor) + '</strong> | ' + p.cat + nat;
+      }
+      return '📋 <strong>' + lista.length + ' lançamentos</strong>:<br>' +
+        lista.map(p => '• ' + p.desc + ' — ' + fmt(p.valor) + (p.nat==='fixa'?' (fixo)':'')).join('<br>');
     }
     case 'DELETE_TRANSACTION':
       return '🗑️ Remover: <strong>' + a.params.desc + '</strong> de ' + MN[a.params.mi];
@@ -893,42 +899,63 @@ function irisActCard(descricao) {
 }
 
 // ── EXECUÇÃO REAL — única função, sem duplicata ──
+function addOneTransaction(p) {
+  // mi pode ser número único ou array de meses
+  const meses = Array.isArray(p.mi) ? p.mi : [p.mi !== undefined ? p.mi : CM];
+  const vp = Math.round((p.valor / (p.parc || 1)) * 100) / 100;
+  const car = p.car || 'pessoal';
+  const nat = p.nat || 'variavel';
+
+  if (nat === 'fixa' && p.tipo === 'DESPESA') {
+    // Despesa fixa: cria entrada em S.fixas e lança em todos meses desbloqueados
+    const fid = uid();
+    S.fixas.push({ id: fid, desc: p.desc, cat: p.cat, valor: vp, car });
+    MN.forEach((_, i) => {
+      if (!isLocked(i)) {
+        const arr = getT(i);
+        arr.push({ id: uid(), fid, desc: p.desc, cat: p.cat, tipo: 'DESPESA',
+          valor: vp, parc: 1, parcAtual: 1, nat: 'fixa', car, ok: false });
+        setT(i, arr);
+      }
+    });
+    save();
+    return p.desc + ' fixo adicionado em todos os meses';
+  } else {
+    // Variável: lança nos meses especificados
+    let count = 0;
+    meses.forEach(mi => {
+      if (isLocked(mi)) return;
+      for (let pp = 0; pp < (p.parc || 1); pp++) {
+        const ti = (mi + pp) % 12;
+        if (isLocked(ti)) continue;
+        const arr = getT(ti);
+        arr.push({ id: uid(), fid: null, desc: p.desc, cat: p.cat, tipo: p.tipo,
+          valor: vp, parc: p.parc || 1, parcAtual: pp + 1, nat, car, ok: false });
+        setT(ti, arr);
+        count++;
+      }
+    });
+    return p.desc + ' adicionado (' + count + ' lançamento' + (count !== 1 ? 's' : '') + ')';
+  }
+}
+
 function execAcao(a) {
   if (!a) return 'Nenhuma ação para executar.';
   try {
     switch (a.type) {
 
       case 'ADD_TRANSACTION': {
-        const p = a.params;
-        if (isLocked(p.mi)) return 'Mês ' + MN[p.mi] + ' está bloqueado (passado). Só posso lançar a partir de ' + MN[CM] + '.';
-        const vp = Math.round((p.valor / (p.parc || 1)) * 100) / 100;
-        if (p.nat === 'fixa' && p.tipo === 'DESPESA') {
-          const fid = uid();
-          S.fixas.push({ id: fid, desc: p.desc, cat: p.cat, valor: vp, car: p.car || 'pessoal' });
-          MN.forEach((_, i) => {
-            if (!isLocked(i)) {
-              const arr = getT(i);
-              arr.push({ id: uid(), fid, desc: p.desc, cat: p.cat, tipo: 'DESPESA',
-                valor: vp, parc: 1, parcAtual: 1, nat: 'fixa', car: p.car || 'pessoal', ok: false });
-              setT(i, arr);
-            }
-          });
-          save();
-        } else {
-          for (let pp = 0; pp < (p.parc || 1); pp++) {
-            const ti = (p.mi + pp) % 12;
-            if (isLocked(ti)) continue;
-            const arr = getT(ti);
-            arr.push({ id: uid(), fid: null, desc: p.desc, cat: p.cat, tipo: p.tipo,
-              valor: vp, parc: p.parc || 1, parcAtual: pp + 1,
-              nat: p.nat || 'variavel', car: p.car || 'pessoal', ok: false });
-            setT(ti, arr);
-          }
-        }
+        // params pode ser objeto único ou array de transações
+        const lista = Array.isArray(a.params) ? a.params : [a.params];
+        const resultados = lista.map(p => addOneTransaction(p));
         render();
-        const parcInfo = p.parc > 1 ? ' (' + p.parc + 'x de ' + fmt(vp) + ')' : '';
-        const fixaInfo = p.nat === 'fixa' ? ' — fixo em todos os meses' : '';
-        return '✓ ' + p.tipo + ' adicionada: **' + p.desc + '** ' + fmt(p.valor) + parcInfo + ' em ' + MN[p.mi] + fixaInfo + '.';
+        const total = lista.length;
+        if (total === 1) {
+          const p = lista[0];
+          const fixaInfo = (p.nat === 'fixa') ? ' (fixo — todos os meses)' : '';
+          return '✓ **' + p.desc + '** — ' + fmt(p.valor) + fixaInfo + ' adicionado!';
+        }
+        return '✓ ' + total + ' lançamentos adicionados:\n' + resultados.map(r => '• ' + r).join('\n');
       }
 
       case 'DELETE_TRANSACTION': {
