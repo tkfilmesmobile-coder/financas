@@ -1447,16 +1447,23 @@ async function irisSendMsg() {
     const action = resultado.action || null;
     const auto   = resultado.autoExec === true;
 
+    // Debug: mostra o que veio da API
+    const dbg = document.getElementById('iris-debug');
+    if (dbg) {
+      dbg.style.display = 'block';
+      dbg.textContent = 'type=' + (action ? action.type : 'null') + ' | reply=' + reply.slice(0,40);
+    }
+
     // Todas as ações executam direto — sem card de confirmação
     if (action) {
       const ok = execAcao(action);
       const msgFinal = (reply || '') + (ok && ok !== reply ? (reply ? '\n\n' + ok : ok) : '');
       irisAddMsg('ai', msgFinal || 'Feito!');
-      irisHistory.push({ role: 'assistant', content: msgFinal || 'ok' });
+      irisHistory.push({ role: 'assistant', content: reply || 'ok' });
 
     } else {
       irisAddMsg('ai', reply || 'Não entendi, pode reformular?');
-      irisHistory.push({ role: 'assistant', content: reply });
+      irisHistory.push({ role: 'assistant', content: reply || 'ok' });
     }
 
   } catch(e) {
