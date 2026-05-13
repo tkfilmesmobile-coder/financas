@@ -823,8 +823,10 @@ function descreverAcao(a) {
       return '📋 <strong>' + lista.length + ' lançamentos</strong>:<br>' +
         lista.map(p => '• ' + p.desc + ' — ' + fmt(p.valor) + (p.nat==='fixa'?' (fixo)':'')).join('<br>');
     }
-    case 'DELETE_TRANSACTION':
-      return '🗑️ Remover: <strong>' + a.params.desc + '</strong> de ' + MN[a.params.mi];
+    case 'DELETE_TRANSACTION': {
+      const mesDel = a.params.mi !== undefined ? ' de ' + MN[a.params.mi] : ' (todos os meses)';
+      return '🗑️ Remover: <strong>' + (a.params.desc || '?') + '</strong>' + mesDel;
+    }
     case 'ADD_CATEGORY':
       return '🏷️ Criar categoria: <strong>' + a.params.name + '</strong>';
     case 'DELETE_CATEGORY':
@@ -1439,13 +1441,13 @@ async function irisSendMsg() {
     const action = resultado.action || null;
     const auto   = resultado.autoExec === true;
 
-    // ADD_TRANSACTION sempre autoExec para não depender do modelo setar corretamente
-    if (action && action.type === 'ADD_TRANSACTION') {
+    // ADD_TRANSACTION e DELETE_TRANSACTION executam direto
+    if (action && (action.type === 'ADD_TRANSACTION' || action.type === 'DELETE_TRANSACTION' || action.type === 'ADD_CATEGORY')) {
       const ok = execAcao(action);
       irisAddMsg('ai', (reply || 'Feito!') + (ok ? '\n\n' + ok : ''));
       irisHistory.push({ role: 'assistant', content: reply || ok });
 
-    } else if (action && (auto || action.type === 'ADD_CATEGORY' || action.type === 'NAVIGATE')) {
+    } else if (action && (auto || action.type === 'NAVIGATE')) {
       // Executa imediatamente
       const ok = execAcao(action);
       irisAddMsg('ai', reply || ok);
