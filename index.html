@@ -1314,12 +1314,19 @@ async function irisSendMsg() {
     // Parse JSON da resposta
     let resultado = null;
     try {
-      // Remove markdown fences se existirem
-      const clean = rawText.replace(/^```(?:json)?\n?/,'').replace(/\n?```$/,'').trim();
+      // Remove markdown fences e escapes inválidos que modelos livres inserem
+      let clean = rawText
+        .replace(/^```(?:json)?\n?/,'').replace(/\n?```$/,'')  // remove fences
+        .replace(/\\_/g,'_')      // \_ -> _
+        .replace(/\\-/g,'-')      // \- -> -
+        .replace(/\\\*/g,'*')    // \* -> *
+        .replace(/\\\(/g,'(').replace(/\\\)/g,')')  // \( \)
+        .replace(/\\\[/g,'[').replace(/\\\]/g,']')  // \[ \]
+        .trim();
       resultado = JSON.parse(clean);
     } catch(e) {
-      // Se não veio JSON, trata como reply simples
-      resultado = { reply: rawText, action: null };
+      // Se não veio JSON válido, trata como resposta de texto simples
+      resultado = { reply: rawText.replace(/\\_/g,'_').replace(/\\-/g,'-'), action: null };
     }
 
     document.getElementById('typ').classList.remove('on');
